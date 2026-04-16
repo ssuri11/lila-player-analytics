@@ -34,6 +34,23 @@ BASE_DIR = os.path.dirname(__file__)
 DATA_PATH = os.path.join(BASE_DIR, "player_data")
 ZIP_PATH = os.path.join(BASE_DIR, "player_data.zip")
 
+# =========================
+# UNZIP (ROBUST)
+# =========================
+if not os.path.exists(DATA_PATH) and os.path.exists(ZIP_PATH):
+    with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
+        zip_ref.extractall(BASE_DIR)
+
+    # Handle nested folder automatically
+    for item in os.listdir(BASE_DIR):
+        item_path = os.path.join(BASE_DIR, item)
+        if os.path.isdir(item_path):
+            if "player_data" in os.listdir(item_path):
+                os.rename(os.path.join(item_path, "player_data"), DATA_PATH)
+
+# =========================
+# MAP CONFIG
+# =========================
 MAP_IMAGES = {
     "AmbroseValley": os.path.join(BASE_DIR, "minimaps", "AmbroseValley_Minimap.png"),
     "GrandRift": os.path.join(BASE_DIR, "minimaps", "GrandRift_Minimap.png"),
@@ -58,13 +75,6 @@ EVENT_COLORS = {
 }
 
 PATH_COLORS = {True: "orange", False: "blue"}
-
-# =========================
-# UNZIP DATA
-# =========================
-if not os.path.exists(DATA_PATH) and os.path.exists(ZIP_PATH):
-    with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
-        zip_ref.extractall(BASE_DIR)
 
 # =========================
 # LOAD DATA
@@ -104,8 +114,12 @@ def load_data():
     return df
 
 df = load_data()
+
+# =========================
+# SAFE STOP
+# =========================
 if df.empty:
-    st.error("No data found.")
+    st.error("⚠️ No data found. Please check player_data.zip structure.")
     st.stop()
 
 # =========================
@@ -156,9 +170,6 @@ with tab1:
 
     show_paths = st.checkbox("Show Paths", True)
     show_points = st.checkbox("Show Events", True)
-    show_heatmap = st.checkbox("🔥 Show Heatmap", False)
-    heatmap_mode = st.selectbox("Heatmap Type", ["All", "Humans Only", "Bots Only"])
-    show_hotspots = st.checkbox("🏆 Show Hotspots", False)
 
     def map_coords(df, map_name, w, h):
         cfg = MAP_CONFIG[map_name]
@@ -174,23 +185,6 @@ with tab1:
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.imshow(img)
 
-        df_plot = map_coords(data, map_name, w, h)
-
-        if heatmap_mode == "Humans Only":
-            df_plot = df_plot[~df_plot["is_bot"]]
-        elif heatmap_mode == "Bots Only":
-            df_plot = df_plot[df_plot["is_bot"]]
-
-        if show_heatmap and len(df_plot) > 0:
-            heat, _, _ = np.histogram2d(df_plot["mx"], df_plot["my"], bins=60)
-            ax.imshow(heat.T, extent=[0, w, h, 0], cmap="inferno", alpha=0.5)
-
-        if show_hotspots and len(df_plot) > 0:
-            heat, _, _ = np.histogram2d(df_plot["mx"], df_plot["my"], bins=20)
-            idx = np.dstack(np.unravel_index(np.argsort(heat.ravel())[-5:], heat.shape))[0]
-            for i, j in idx:
-                ax.scatter((i / 20) * w, (j / 20) * h, color="yellow", s=100, edgecolors="black")
-
         if show_paths:
             path_df = path_df_full[path_df_full["map_id"] == map_name]
             path_df = map_coords(path_df, map_name, w, h)
@@ -204,37 +198,6 @@ with tab1:
             df_points = map_coords(data, map_name, w, h)
             ax.scatter(df_points["mx"], df_points["my"], c=df_points["event"].map(EVENT_COLORS), s=10)
 
-        # LEGEND
-        handles, labels = [], []
-
-        if show_paths:
-            handles += [Line2D([0],[0],color='blue'), Line2D([0],[0],color='orange')]
-            labels += ["Human Path","Bot Path"]
-
-        if show_heatmap:
-            handles.append(Patch(facecolor='red',alpha=0.5))
-            labels.append("Heatmap")
-
-        if show_hotspots:
-            handles.append(Line2D([0],[0],marker='o',color='w',
-                                  markerfacecolor='yellow',
-                                  markeredgecolor='black',
-                                  markersize=10,
-                                  linestyle='None'))
-            labels.append("Hotspots")
-
-        if show_points and len(data) > 0:
-            for event in sorted(data["event"].unique()):
-                handles.append(Line2D([0],[0],marker='o',color='w',
-                                      markerfacecolor=EVENT_COLORS.get(event,"white"),
-                                      markersize=6,linestyle='None'))
-                labels.append(event)
-
-        if handles:
-            ax.legend(handles, labels, loc='upper left', fontsize=7)
-
-        ax.set_xlim(0, w)
-        ax.set_ylim(h, 0)
         ax.axis("off")
         return fig
 
@@ -246,7 +209,7 @@ with tab1:
         st.pyplot(plot_map(map_choice, filtered_df))
 
 # =========================
-# PREDICTION (FIXED)
+# PREDICTION
 # =========================
 with tab2:
     st.header("🤖 Player Prediction")
@@ -273,7 +236,7 @@ with tab2:
             pred_locs.append(nxt)
             current = nxt.reshape(1, -1)
 
-        # EVENT PREDICTION
+        # Event prediction
         window = 10
         history = events[-window:].copy()
         pred_events = []
@@ -283,7 +246,7 @@ with tab2:
             pred_events.append(pred)
             history.append(pred)
 
-        # METRICS
+        # Metrics
         col1, col2 = st.columns(2)
 
         y_true, y_pred = [], []
@@ -300,7 +263,7 @@ with tab2:
         col2.metric("📏 Location Error",
                     round(np.linalg.norm(pred_locs[0] - coords.iloc[-1].values), 2))
 
-        # PLOT
+        # Plot predictions
         map_name = pdf["map_id"].iloc[-1]
         st.subheader(f"🗺️ Map: {map_name}")
 
