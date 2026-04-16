@@ -280,3 +280,55 @@ with tab2:
 
         st.metric("📏 Location Error",
                   round(np.linalg.norm(preds[0]-coords.iloc[-1].values),2))
+        # =========================
+        # MAP VISUALIZATION (NEW)
+        # =========================
+        map_name = pdf["map_id"].iloc[-1]
+        st.subheader(f"🗺️ Map: {map_name}")
+
+        img = Image.open(MAP_IMAGES[map_name])
+        w, h = img.size
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.imshow(img)
+
+        def map_single(x, z):
+            cfg = MAP_CONFIG[map_name]
+            mx = ((x - cfg["origin_x"]) / cfg["scale"]) * w
+            my = (1 - (z - cfg["origin_z"]) / cfg["scale"]) * h
+            return mx, my
+
+        px, py = [], []
+
+        for i, loc in enumerate(preds):
+            mx, my = map_single(loc[0], loc[1])
+            px.append(mx)
+            py.append(my)
+
+            # Step labels
+            ax.text(
+                mx,
+                my,
+                f"Step {i+1}",
+                color="white",
+                fontsize=8,
+                bbox=dict(facecolor='green', alpha=0.6)
+            )
+
+        # Draw predicted path
+        ax.plot(px, py, linestyle="dashed", color="green", marker="o")
+
+        # =========================
+        # LEGEND (NEW)
+        # =========================
+        legend_items = [
+            Line2D([0],[0], color='green', linestyle='dashed', marker='o', label="Predicted Path")
+        ]
+
+        ax.legend(handles=legend_items, loc="upper left", fontsize=8)
+
+        ax.set_xlim(0, w)
+        ax.set_ylim(h, 0)
+        ax.axis("off")
+
+        st.pyplot(fig)
