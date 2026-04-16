@@ -1,5 +1,3 @@
-# (ONLY IMPORTANT NOTE: This is your FULL APP — no sections removed)
-
 import streamlit as st
 import pyarrow.parquet as pq
 import pandas as pd
@@ -37,22 +35,15 @@ DATA_PATH = os.path.join(BASE_DIR, "player_data")
 ZIP_PATH = os.path.join(BASE_DIR, "player_data.zip")
 
 # =========================
-# SAFE UNZIP (NO CRASH)
+# SAFE UNZIP
 # =========================
-try:
-    if not os.path.exists(DATA_PATH) and os.path.exists(ZIP_PATH):
+if not os.path.exists(DATA_PATH) and os.path.exists(ZIP_PATH):
+    try:
         with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
             zip_ref.extractall(BASE_DIR)
-
-        # Handle nested folder
-        for item in os.listdir(BASE_DIR):
-            item_path = os.path.join(BASE_DIR, item)
-            if os.path.isdir(item_path):
-                if "player_data" in os.listdir(item_path):
-                    os.rename(os.path.join(item_path, "player_data"), DATA_PATH)
-except Exception as e:
-    st.error(f"Zip extraction error: {e}")
-    st.stop()
+    except:
+        st.error("Zip extraction failed")
+        st.stop()
 
 # =========================
 # MAP CONFIG
@@ -83,12 +74,11 @@ EVENT_COLORS = {
 PATH_COLORS = {True: "orange", False: "blue"}
 
 # =========================
-# LOAD DATA (SAFE)
+# LOAD DATA
 # =========================
 @st.cache_data
 def load_data():
     frames = []
-
     if not os.path.exists(DATA_PATH):
         return pd.DataFrame()
 
@@ -121,15 +111,12 @@ def load_data():
 
 df = load_data()
 
-# =========================
-# SAFE STOP (NO CRASH LOOP)
-# =========================
 if df.empty:
-    st.error("⚠️ No data found. Please check player_data.zip structure.")
+    st.error("⚠️ No data found")
     st.stop()
 
 # =========================
-# DATE FILTER
+# FILTERS
 # =========================
 with st.sidebar:
     start = st.date_input("Start Date", df["date"].min())
@@ -137,9 +124,6 @@ with st.sidebar:
 
 df = df[(df["date"] >= pd.to_datetime(start)) & (df["date"] <= pd.to_datetime(end))]
 
-# =========================
-# TABS
-# =========================
 tab1, tab2 = st.tabs(["📊 Visualization", "🤖 Prediction"])
 
 # =========================
@@ -176,9 +160,8 @@ with tab1:
 
     show_paths = st.checkbox("Show Paths", True)
     show_points = st.checkbox("Show Events", True)
-    show_heatmap = st.checkbox("🔥 Show Heatmap", False)
-    heatmap_mode = st.selectbox("Heatmap Type", ["All", "Humans Only", "Bots Only"])
-    show_hotspots = st.checkbox("🏆 Show Hotspots", False)
+    show_heatmap = st.checkbox("🔥 Heatmap", False)
+    show_hotspots = st.checkbox("🏆 Hotspots", False)
 
     def map_coords(df, map_name, w, h):
         cfg = MAP_CONFIG[map_name]
@@ -191,111 +174,109 @@ with tab1:
         img = Image.open(MAP_IMAGES[map_name])
         w, h = img.size
 
-        fig, ax = plt.subplots(figsize=(6, 6))
+        fig, ax = plt.subplots(figsize=(6,6))
         ax.imshow(img)
 
         df_plot = map_coords(data, map_name, w, h)
 
-        # Heatmap filtering
-        heat_df = df_plot.copy()
-        if heatmap_mode == "Humans Only":
-            heat_df = heat_df[~heat_df["is_bot"]]
-        elif heatmap_mode == "Bots Only":
-            heat_df = heat_df[heat_df["is_bot"]]
+        if show_heatmap and len(df_plot) > 0:
+            heat,_,_ = np.histogram2d(df_plot["mx"], df_plot["my"], bins=60)
+            ax.imshow(heat.T, extent=[0,w,h,0], cmap="inferno", alpha=0.5)
 
-        # Heatmap
-        if show_heatmap and len(heat_df) > 0:
-            heat, _, _ = np.histogram2d(heat_df["mx"], heat_df["my"], bins=60)
-            ax.imshow(heat.T, extent=[0, w, h, 0], cmap="inferno", alpha=0.5)
-
-        # Hotspots
-        if show_hotspots and len(heat_df) > 0:
-            heat, _, _ = np.histogram2d(heat_df["mx"], heat_df["my"], bins=20)
+        if show_hotspots and len(df_plot) > 0:
+            heat,_,_ = np.histogram2d(df_plot["mx"], df_plot["my"], bins=20)
             idx = np.dstack(np.unravel_index(np.argsort(heat.ravel())[-5:], heat.shape))[0]
-            for i, j in idx:
-                ax.scatter((i/20)*w, (j/20)*h, color="yellow", s=100, edgecolors="black")
+            for i,j in idx:
+                ax.scatter((i/20)*w,(j/20)*h,color="yellow",s=100,edgecolors="black")
 
-        # Paths
         if show_paths:
-            path_df = path_df_full[path_df_full["map_id"] == map_name]
-            path_df = map_coords(path_df, map_name, w, h)
+            path_df = path_df_full[path_df_full["map_id"]==map_name]
+            path_df = map_coords(path_df,map_name,w,h)
             pos_df = path_df[path_df["event"].isin(["Position","BotPosition"])]
-            for _, g in pos_df.groupby("user_id"):
-                g = g.sort_values("ts")
-                if len(g) > 1:
-                    ax.plot(g["mx"], g["my"], color=PATH_COLORS[g["is_bot"].iloc[0]], alpha=0.6)
+            for _,g in pos_df.groupby("user_id"):
+                g=g.sort_values("ts")
+                if len(g)>1:
+                    ax.plot(g["mx"],g["my"],color=PATH_COLORS[g["is_bot"].iloc[0]],alpha=0.6)
 
-        # Events
-        if show_points and len(data) > 0:
-            df_points = map_coords(data, map_name, w, h)
-            ax.scatter(df_points["mx"], df_points["my"],
-                       c=df_points["event"].map(EVENT_COLORS), s=10)
+        if show_points and len(data)>0:
+            df_points = map_coords(data,map_name,w,h)
+            ax.scatter(df_points["mx"],df_points["my"],
+                       c=df_points["event"].map(EVENT_COLORS),s=10)
 
-        # Legend (clean)
-        legend_items = []
-
+        # LEGEND
+        legend=[]
         if show_paths:
-            legend_items += [
-                Line2D([0],[0],color='blue',label="Human Path"),
-                Line2D([0],[0],color='orange',label="Bot Path")
-            ]
+            legend += [Line2D([0],[0],color='blue',label="Human"),
+                       Line2D([0],[0],color='orange',label="Bot")]
 
         if show_heatmap:
-            legend_items.append(Patch(facecolor='orange', alpha=0.5, label="Heatmap"))
+            legend.append(Patch(facecolor='orange',alpha=0.5,label="Heatmap"))
 
         if show_hotspots:
-            legend_items.append(Line2D([0],[0],marker='o',color='w',
+            legend.append(Line2D([0],[0],marker='o',color='w',
                 markerfacecolor='yellow',markeredgecolor='black',
                 linestyle='None',label="Hotspots"))
 
-        if show_points and len(data) > 0:
-            for event in sorted(data["event"].unique()):
-                legend_items.append(Line2D([0],[0],marker='o',color='w',
-                    markerfacecolor=EVENT_COLORS.get(event,"white"),
-                    linestyle='None',label=event))
+        if show_points and len(data)>0:
+            for e in sorted(data["event"].unique()):
+                legend.append(Line2D([0],[0],marker='o',color='w',
+                    markerfacecolor=EVENT_COLORS.get(e,"white"),
+                    linestyle='None',label=e))
 
-        if legend_items:
-            ax.legend(handles=legend_items, loc='upper left', fontsize=7)
+        if legend:
+            ax.legend(handles=legend,fontsize=7,loc="upper left")
 
         ax.set_xlim(0,w)
         ax.set_ylim(h,0)
         ax.axis("off")
         return fig
 
-    if map_choice == "All Maps":
+    if map_choice=="All Maps":
         for m in MAP_IMAGES:
             st.subheader(m)
-            st.pyplot(plot_map(m, filtered_df[filtered_df["map_id"] == m]))
+            st.pyplot(plot_map(m,filtered_df[filtered_df["map_id"]==m]))
     else:
-        st.pyplot(plot_map(map_choice, filtered_df))
+        st.pyplot(plot_map(map_choice,filtered_df))
 
 # =========================
-# PREDICTION (UNCHANGED + SAFE)
+# PREDICTION (FIXED)
 # =========================
 with tab2:
-    st.header("🤖 Player Prediction")
+    st.header("🤖 Player Prediction (Humans Only)")
 
-    player = st.selectbox("Player", df["user_id"].astype(str).unique())
-    pdf = df[df["user_id"].astype(str) == player].sort_values("ts")
+    human_df = df[~df["is_bot"]]
 
-    if len(pdf) < 20:
+    player = st.selectbox("Player", human_df["user_id"].astype(str).unique())
+    pdf = human_df[human_df["user_id"].astype(str)==player].sort_values("ts")
+
+    if len(pdf)<20:
         st.warning("Not enough data")
     else:
         coords = pdf[["x","z"]].dropna()
         events = pdf["event"].tolist()
 
-        k = min(5, len(coords))
-        kmeans = KMeans(n_clusters=k, n_init=10).fit(coords)
-        centers = kmeans.cluster_centers_
+        k=min(5,len(coords))
+        kmeans=KMeans(n_clusters=k,n_init=10).fit(coords)
+        centers=kmeans.cluster_centers_
 
-        current = coords.iloc[-1].values.reshape(1,-1)
-        preds = []
+        current=coords.iloc[-1].values.reshape(1,-1)
+        preds=[]
 
         for _ in range(3):
-            c = kmeans.predict(current)[0]
-            nxt = centers[(c+1)%k]
+            c=kmeans.predict(current)[0]
+            nxt=centers[(c+1)%k]
             preds.append(nxt)
-            current = nxt.reshape(1,-1)
+            current=nxt.reshape(1,-1)
+
+        # Accuracy
+        y_true,y_pred=[],[]
+        for i in range(10,len(events)-1):
+            hist=events[i-10:i]
+            y_pred.append(max(set(hist),key=hist.count))
+            y_true.append(events[i])
+
+        if y_true:
+            st.metric("⚡ Event Accuracy", f"{round(accuracy_score(y_true,y_pred)*100,2)}%")
 
         st.metric("📏 Location Error",
-                  round(np.linalg.norm(preds[0] - coords.iloc[-1].values),2))
+                  round(np.linalg.norm(preds[0]-coords.iloc[-1].values),2))
